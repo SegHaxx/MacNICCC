@@ -55,12 +55,12 @@ static void* parse_pal(void* ptr){
 	return ptr;
 }
 
+#pragma GCC push_options
+#pragma GCC optimize ("Ofast")
+__attribute__ ((noinline))
 static void* parse_frame(void* b){
-	//printf("\nframe\n");
-	//SetPort(&myPort);
-	//PenPat(&qd.white);
 	while(1){
-		int poly_desc=POP_BYTE(b);
+		uint8_t poly_desc=POP_BYTE(b);
 		switch(poly_desc){
 			case 0xff:
 				return b;
@@ -71,79 +71,113 @@ static void* parse_frame(void* b){
 			default:
 				break;
 		}
-		PolyHandle poly=OpenPoly();
-		int poly_vert_count=poly_desc&0xf;
-		int poly_color=poly_desc>>4;
-		int first_x=POP_BYTE(b)<<SCALE;
-		int first_y=POP_BYTE(b)<<SCALE;
-		MoveTo(first_x,first_y);
-		while(--poly_vert_count){
-			int x=POP_BYTE(b)<<SCALE;
-			int y=POP_BYTE(b)<<SCALE;
-			LineTo(x,y);
-		}
-		LineTo(first_x,first_y);
-		ClosePoly();
-		if(WIREFRAME){
-			FramePoly(poly);
-		}else{
-			FillPoly(poly,pal[poly_color]);
-		}
-		KillPoly(poly);
-	}
-}
 
-uint16_t vert_buf[255][2];
-
-static void* parse_frame_indexed(void* b){
-	//printf("\nindexed frame\n");
-
-	uint16_t vert_count=POP_BYTE(b);
-	//printf("vert_count=%i\n",vert_count);
-	for(int i=0;i<vert_count;++i){
-		vert_buf[i][0]=POP_BYTE(b)<<SCALE;
-		vert_buf[i][1]=POP_BYTE(b)<<SCALE;
-	}
-	//for(int i=0;i<vert_count;++i){
-	//	printf("%i,%i ",
-	//			vert_buf[i][0],
-	//			vert_buf[i][1]);
-	//}
-	//printf("\n");
-
-	//SetPort(&myPort);
-	//PenPat(&qd.white);
-	while(1){
-		uint16_t poly_desc=POP_BYTE(b);
-		switch(poly_desc){
-			case 0xff:
-				return b;
-			case 0xfe:
-				return (void*)1;
-			case 0xfd:
-				return 0;
-			default:
-				break;
-		}
-		PolyHandle poly=OpenPoly();
+		//PolyHandle poly=OpenPoly();
 		uint16_t poly_vert_count=poly_desc&0xf;
+		PolyPtr polyp=*poly;
+		polyp->polySize=sizeof(Polygon)+(sizeof(Point)*(poly_vert_count));
+
 		uint16_t poly_color=poly_desc>>4;
-		uint16_t first_vert=POP_BYTE(b);
-		MoveTo(vert_buf[first_vert][0],vert_buf[first_vert][1]);
+
+		uint16_t first_x=POP_BYTE(b)<<SCALE;
+		uint16_t first_y=POP_BYTE(b)<<SCALE;
+		polyp->polyPoints[0].v=first_y;
+		polyp->polyPoints[0].h=first_x;
+		polyp->polyPoints[poly_vert_count].v=first_y;
+		polyp->polyPoints[poly_vert_count].h=first_x;
+		//MoveTo(first_x,first_y);
+#pragma GCC unroll 2
 		while(--poly_vert_count){
-			uint16_t vert=POP_BYTE(b);
-			LineTo(vert_buf[vert][0],vert_buf[vert][1]);
+#if 0
+			uint16_t x=POP_BYTE(b)<<SCALE;
+			uint16_t y=POP_BYTE(b)<<SCALE;
+			//LineTo(x,y);
+			polyp->polyPoints[poly_vert_count].v=y;
+			polyp->polyPoints[poly_vert_count].h=x;
+#else
+			uint16_t x=POP_BYTE(b)<<SCALE;
+			uint16_t y=POP_BYTE(b)<<SCALE;
+			uint32_t* p=(uint32_t*)&polyp->polyPoints[poly_vert_count];
+			*p=x|(uint32_t)y<<16;
+#endif
 		}
-		LineTo(vert_buf[first_vert][0],vert_buf[first_vert][1]);
-		ClosePoly();
+		//LineTo(first_x,first_y);
+		//ClosePoly();
 		if(WIREFRAME){
 			FramePoly(poly);
 		}else{
 			FillPoly(poly,pal[poly_color]);
 		}
-		KillPoly(poly);
+		//KillPoly(poly);
 	}
 }
+
+Point vert_buf[256];
+
+static void copy_i16x2(const void* src,void* dst){
+        int32_t* s=(int32_t*)src;
+        int32_t* d=(int32_t*)dst;
+        int32_t t=*s;
+        *d=t;
+}
+#define copyPoint(src,dst) copy_i16x2(src,dst)
+
+__attribute__ ((noinline))
+static void* parse_frame_indexed(void* b){
+	uint16_t vert_count=POP_BYTE(b);
+	for(int i=0;i<vert_count;++i){
+#if 0
+		vert_buf[i].h=POP_BYTE(b)<<SCALE;
+		vert_buf[i].v=POP_BYTE(b)<<SCALE;
+#else
+		uint16_t x=POP_BYTE(b)<<SCALE;
+		uint16_t y=POP_BYTE(b)<<SCALE;
+		uint32_t* p=(uint32_t*)&vert_buf[i];
+		*p=x|(uint32_t)y<<16;
+#endif
+	}
+	while(1){
+		uint8_t poly_desc=POP_BYTE(b);
+		switch(poly_desc){
+			case 0xff:
+				return b;
+			case 0xfe:
+				return (void*)1;
+			case 0xfd:
+				return 0;
+			default:
+				break;
+		}
+
+		//PolyHandle poly=OpenPoly();
+		uint16_t poly_vert_count=poly_desc&0xf;
+		PolyPtr polyp=*poly;
+		polyp->polySize=sizeof(Polygon)+(sizeof(Point)*poly_vert_count);
+		Point* points=polyp->polyPoints;
+
+		uint16_t poly_color=poly_desc>>4;
+
+		uint16_t first_vert=POP_BYTE(b);
+		//MoveTo(vert_buf[first_vert][0],vert_buf[first_vert][1]);
+		copyPoint(&vert_buf[first_vert],&points[poly_vert_count]);
+		copyPoint(&vert_buf[first_vert],points++);
+#pragma GCC unroll 2
+		for(uint32_t i=1;i<poly_vert_count;++i){
+			uint32_t vert=POP_BYTE(b);
+			//LineTo(vert_buf[vert][0],vert_buf[vert][1]);
+			copyPoint(&vert_buf[vert],points++);
+		}
+		//LineTo(vert_buf[first_vert][0],vert_buf[first_vert][1]);
+		//ClosePoly();
+		if(WIREFRAME){
+			FramePoly(poly);
+		}else{
+			FillPoly(poly,pal[poly_color]);
+		}
+		//KillPoly(poly);
+	}
+}
+#pragma GCC pop_options
 
 static int parse_block(void* b){
 	//printf("%02x ",POP_BYTE(b));
@@ -185,6 +219,16 @@ int main(int argc, char** argv){
 	int y=(myPort.portRect.bottom-h)/2;
 	SetOrigin(-x,-y);
 	SetRect(&myPort.portRect,0,0,w,h);
+
+	poly=(PolyHandle)NewEmptyHandle();
+	*poly=(PolyPtr)polybuf;
+	HLock((Handle)poly);
+
+	PolyPtr polyp=*poly;
+	polyp->polyBBox.top=0;
+	polyp->polyBBox.left=0;
+	polyp->polyBBox.bottom=199<<SCALE;
+	polyp->polyBBox.right=255<<SCALE;
 
 	short f=0;
 	FSOpen("\pscene1.bin",f,&f);

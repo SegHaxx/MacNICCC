@@ -1,4 +1,5 @@
-CFLAGS=-std=gnu99 -Wall -Os
+CFLAGS=-std=gnu99 -Wall -Os -mshort
+#CFLAGS=-std=gnu99 -Wall -Os -mtune=68020-40
 
 # path to RETRO68
 RETRO68=/home/seg/src/Retro68-build/toolchain
@@ -7,7 +8,7 @@ CC=$(PREFIX)-gcc
 CXX=$(PREFIX)-g++
 REZ=$(RETRO68)/bin/Rez
 
-#LDFLAGS=-lRetroConsole
+LDFLAGS=-Wl,-gc-sections
 RINCLUDES=$(RETRO68)/m68k-apple-macos/RIncludes
 REZFLAGS=-I$(RINCLUDES)
 
@@ -23,8 +24,6 @@ clean:
 	rm -f $(obj) $(TARGETS) *.code.bin.gdb
 
 MacNICCC.code.bin: macniccc.o
-	@# C++ used for linking because RetroConsole needs it
-	@#$(CXX) $< -o $@ $(LDFLAGS)
 	$(CC) $< -o $@ $(LDFLAGS)
 
 macniccc.s: macniccc.c
